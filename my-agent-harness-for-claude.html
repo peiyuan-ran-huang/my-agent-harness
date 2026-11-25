@@ -1,0 +1,1113 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My AI agent harness (for Claude Code)</title>
+<meta name="description" content="Notes on my personal Claude Code harness for day-to-day work: safety architecture, verification machinery, the learning loop, and an item-by-item catalogue. Shared for exchange, not as a template.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23D97757'/%3E%3C/svg%3E">
+<style>
+/* ============ Design tokens (Claude classic family) ============ */
+:root{
+  --bg:#F0EEE6;            /* cream */
+  --surface:#FAF9F5;       /* ivory */
+  --accent:#D97757;        /* Claude orange */
+  --accent-deep:#8A3D1E;   /* text-safe depth variant, same hue */
+  --accent-soft:rgba(217,119,87,.10);
+  --ink:#141413;
+  --muted:#6E6A63;
+  --border:#E5E0D8;
+  --radius:12px;
+  --serif:Georgia,'Times New Roman',serif;
+  --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,Arial,sans-serif;
+  --mono:ui-monospace,'Cascadia Mono',Consolas,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-padding-top:76px}
+@media (prefers-reduced-motion:no-preference){
+  html{scroll-behavior:smooth}
+  details .deep-body{animation:fadein .25s ease}
+  @keyframes fadein{from{opacity:0;transform:translateY(2px)}to{opacity:1;transform:none}}
+}
+body{
+  background:var(--bg);color:var(--ink);
+  font-family:var(--sans);font-size:17px;line-height:1.65;
+  -webkit-font-smoothing:antialiased;
+}
+.skip{position:absolute;left:-999px;top:0;background:var(--ink);color:var(--surface);padding:.5rem 1rem;z-index:99}
+.skip:focus{left:0}
+.wrap{max-width:1100px;margin:0 auto;padding:0 24px}
+a{color:var(--accent-deep);text-decoration-color:var(--accent);text-underline-offset:3px}
+a:hover{text-decoration-thickness:2px}
+::selection{background:var(--accent-deep);color:var(--surface)}
+.table-scroll{overflow-x:auto;max-width:100%}
+@media (max-width:840px){
+  table.cat td.n{white-space:normal;overflow-wrap:anywhere}
+  .module code{overflow-wrap:anywhere}
+}
+
+/* ============ Navigation ============ */
+nav{
+  position:sticky;top:0;z-index:10;height:64px;
+  background:rgba(240,238,230,.92);backdrop-filter:blur(8px);
+  border-bottom:1px solid var(--border);
+}
+.nav-inner{max-width:1100px;margin:0 auto;padding:0 24px;height:64px;display:flex;align-items:center;gap:20px}
+.brand{font-family:var(--serif);font-size:1.02rem;font-weight:700;color:var(--ink);text-decoration:none;white-space:nowrap}
+.brand em{font-style:normal;color:var(--accent-deep)}
+.nav-links{display:flex;gap:18px;margin-left:auto;align-items:center}
+.nav-links a{font-size:.88rem;color:var(--muted);text-decoration:none;white-space:nowrap}
+.nav-links a:hover{color:var(--accent-deep)}
+#toggleDeep{
+  font:inherit;font-size:.82rem;color:var(--accent-deep);background:var(--surface);
+  border:1px solid var(--border);border-radius:999px;padding:.38rem .95rem;cursor:pointer;white-space:nowrap;
+}
+#toggleDeep:hover{border-color:var(--accent)}
+#toggleDeep:active{transform:translateY(1px)}
+.m-nav{display:none;position:relative}
+.m-nav summary{cursor:pointer;list-style:none;font-size:.85rem;color:var(--accent-deep);border:1px solid var(--border);border-radius:999px;padding:.3rem .8rem;background:var(--surface);white-space:nowrap}
+.m-nav summary::-webkit-details-marker{display:none}
+.m-nav-panel{position:absolute;top:calc(100% + 10px);right:0;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 16px;display:flex;flex-direction:column;gap:9px;min-width:170px;box-shadow:0 6px 24px rgba(20,20,19,.10)}
+.m-nav-panel a{font-size:.95rem;color:var(--ink);text-decoration:none}
+@media (max-width:840px){
+  .nav-links>a:not([lang]){display:none}
+  .m-nav{display:block}
+  .nav-inner{gap:12px}
+}
+@media (max-width:620px){#toggleDeep{display:none}}
+@media (max-width:400px){.brand{font-size:.92rem}}
+
+/* ============ Hero ============ */
+.hero{padding:72px 0 40px}
+.hero h1{
+  font-family:var(--serif);font-weight:700;letter-spacing:-.015em;
+  font-size:clamp(2.3rem,5vw,3.4rem);line-height:1.08;max-width:17ch;
+}
+.hero h1 .tint{color:var(--accent-deep)}
+.hero .sub{margin-top:22px;font-size:1.16rem;color:var(--ink);max-width:52ch}
+.hero .meta{margin-top:26px;color:var(--muted);font-size:.92rem;line-height:1.7}
+.hero .meta strong{color:var(--ink);font-weight:600}
+.rule{height:3px;width:64px;background:var(--accent);border-radius:2px;margin-top:30px}
+
+/* ============ Stat strip ============ */
+.stats{padding:34px 0 8px}
+.stat-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}
+.stat{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px 16px 14px}
+.stat .v{font-weight:650;font-size:2.05rem;line-height:1.1;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.stat .l{margin-top:6px;color:var(--muted);font-size:.82rem;line-height:1.35}
+.stat-note{margin-top:12px;color:var(--muted);font-size:.8rem;max-width:70ch}
+@media (max-width:900px){.stat-grid{grid-template-columns:repeat(3,1fr)}}
+@media (max-width:560px){.stat-grid{grid-template-columns:repeat(2,1fr)}}
+
+/* ============ Part headers ============ */
+.part-head{margin:84px 0 8px;padding-top:26px;border-top:2px solid var(--ink)}
+.part-label{font-size:.74rem;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--accent-deep)}
+.part-head h2{font-family:var(--serif);font-size:2rem;font-weight:700;letter-spacing:-.01em;margin-top:8px}
+.part-head .part-sub{color:var(--muted);margin-top:6px;max-width:62ch}
+
+/* ============ Modules ============ */
+.module{margin-top:52px;max-width:76ch}
+.module h3{font-family:var(--serif);font-size:1.42rem;font-weight:700;letter-spacing:-.008em}
+.module h3::after{content:"";display:block;width:34px;height:2px;background:var(--accent);margin-top:8px;border-radius:1px}
+.module p{margin-top:14px}
+.module p strong.k{font-weight:700;color:var(--accent-deep)}
+.module ul,.module ol{margin:14px 0 0 1.2rem}
+.module li{margin-top:8px}
+.module code{font-family:var(--mono);font-size:.86em;background:var(--surface);border:1px solid var(--border);border-radius:5px;padding:.08em .35em}
+
+details.deep{margin-top:18px;background:var(--accent-soft);border:1px solid var(--border);border-radius:var(--radius)}
+details.deep summary{
+  cursor:pointer;list-style:none;padding:13px 18px;font-size:.9rem;font-weight:600;color:var(--accent-deep);
+  display:flex;align-items:center;gap:10px;
+}
+details.deep summary::-webkit-details-marker{display:none}
+details.deep summary::before{content:"+";font-weight:600;font-size:1.05rem;line-height:1;transition:transform .18s ease}
+details.deep[open] summary::before{transform:rotate(45deg)}
+details.deep .deep-body{padding:2px 18px 16px;font-size:.95rem}
+details.deep .deep-body p{margin-top:10px}
+@media (prefers-reduced-motion:reduce){details.deep summary::before{transition:none}}
+
+/* ============ Diagram panel ============ */
+.diagram{margin-top:26px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;overflow-x:auto}
+.diagram svg{display:block;min-width:640px;width:100%;height:auto}
+.diagram-caption{margin-top:10px;color:var(--muted);font-size:.85rem;max-width:76ch}
+
+/* ============ Ladder ============ */
+.ladder{margin-top:22px;max-width:560px}
+.ladder-bars{display:flex;align-items:flex-end;gap:10px}
+.ladder-bars .bar{flex:1;border-radius:6px 6px 0 0;border:1px solid rgba(138,61,30,.25);border-bottom:none}
+.ladder-base{height:2px;background:var(--ink);border-radius:1px}
+.ladder-labels{display:flex;gap:10px;margin-top:7px}
+.ladder-labels>div{flex:1;text-align:center}
+.ladder-labels .lv{font-weight:700;font-size:.86rem}
+.ladder-labels .tag{color:var(--muted);font-size:.74rem;line-height:1.3}
+
+/* ============ Principles ============ */
+.principles{max-width:none}
+.principles ol{display:grid;grid-template-columns:1fr 1fr;gap:14px 28px;margin:20px 0 0;list-style:none;counter-reset:pr}
+.principles ol li{counter-increment:pr;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;margin:0}
+.principles ol li::before{content:counter(pr,decimal-leading-zero);font-family:var(--mono);font-size:.8rem;color:var(--accent-deep);display:block;margin-bottom:6px}
+.principles ol li strong{display:block;margin-bottom:4px}
+.principles ol li{font-size:.94rem}
+@media (max-width:760px){.principles ol{grid-template-columns:1fr}}
+table.tradeoffs{width:100%;border-collapse:collapse;font-size:.93rem;margin-top:8px}
+table.tradeoffs th{text-align:left;font-weight:700;padding:8px 12px 8px 0;border-bottom:2px solid var(--ink)}
+table.tradeoffs td{padding:10px 12px 10px 0;border-bottom:1px solid var(--border);vertical-align:top}
+table.tradeoffs tr:last-child td{border-bottom:none}
+
+/* ============ Catalogue ============ */
+a.stat{display:block;text-decoration:none;color:var(--ink);transition:border-color .15s ease}
+a.stat:hover{border-color:var(--accent)}
+a.stat:hover .l{color:var(--accent-deep)}
+a.stat:active{transform:translateY(1px)}
+.cat{max-width:none}
+table.cat{width:100%;border-collapse:collapse;font-size:.92rem;margin-top:16px}
+table.cat th{text-align:left;font-weight:700;padding:8px 14px 8px 0;border-bottom:2px solid var(--ink)}
+table.cat td{padding:9px 14px 9px 0;border-bottom:1px solid var(--border);vertical-align:top}
+table.cat tr:last-child td{border-bottom:none}
+table.cat td.n{font-family:var(--mono);font-size:.84em;white-space:nowrap}
+table.cat tr.sub td{font-family:var(--serif);font-weight:700;font-size:1.02rem;padding-top:20px;border-bottom:2px solid var(--border);color:var(--accent-deep)}
+.cat-intro{max-width:76ch}
+.pill{display:inline-block;font-size:.72rem;font-weight:600;border:1px solid var(--border);border-radius:999px;padding:.05rem .55rem;background:var(--surface);color:var(--muted);white-space:nowrap}
+.pill.hard{color:var(--accent-deep);border-color:var(--accent)}
+
+/* ============ Footer ============ */
+footer{margin-top:96px;border-top:2px solid var(--ink);padding:30px 0 60px;color:var(--muted);font-size:.9rem}
+footer .fin{font-family:var(--serif);font-style:italic;color:var(--ink);margin-top:10px}
+
+/* ============ Print ============ */
+@media print{
+  nav,#toggleDeep{display:none}
+  body{background:#fff;font-size:12pt}
+  .part-head{break-inside:avoid}
+  .module{break-inside:avoid-page}
+  details.deep{background:#fff}
+  a{color:var(--ink)}
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<nav aria-label="Document">
+  <div class="nav-inner">
+    <a class="brand" href="#top">My agent <em>harness</em></a>
+    <div class="nav-links">
+      <a href="#part-1">Overview</a>
+      <a href="#part-2">Contract</a>
+      <a href="#part-3">Safety</a>
+      <a href="#part-4">Capabilities</a>
+      <a href="#part-5">Honesty</a>
+      <a href="#part-6">Catalogue</a>
+      <details class="m-nav"><summary>Sections</summary>
+        <div class="m-nav-panel">
+          <a href="#part-1">Overview</a>
+          <a href="#part-2">Contract</a>
+          <a href="#part-3">Safety</a>
+          <a href="#part-4">Capabilities</a>
+          <a href="#part-5">Honesty</a>
+          <a href="#part-6">Catalogue</a>
+        </div>
+      </details>
+      <button id="toggleDeep" type="button" aria-pressed="false" hidden>Expand all detail</button>
+    </div>
+  </div>
+</nav>
+
+<main id="main" class="wrap">
+
+  <!-- ================= HERO ================= -->
+  <header class="hero" id="top">
+    <h1 style="max-width:none">My AI agent harness<br><span class="tint" style="font-size:.62em">(for Claude Code)</span></h1>
+    <p class="sub">My working notes on the configuration I have gradually built around
+    Claude Code: what it does for me, what it is stopped from doing, and what a few months
+    of trial and error taught me, written down in case any of it helps someone building
+    their own.</p>
+    <div class="meta">
+      <strong>Peiyuan (Ran) Huang</strong><br>
+      24 November 2026 · describes the live configuration as verified on this date<br>
+      Prepared with the assistance of Claude Code (designed by Fable 5, executed and
+      verified by Opus 5; updated in October and November 2026 with Opus 5.5), working inside the very
+      harness this page describes.
+    </div>
+    <div class="disclaimer" style="margin-top:18px;max-width:76ch;background:var(--accent-soft);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:8px;padding:14px 18px;font-size:.92rem">
+      <strong>Before you read on.</strong> This page is shared for my personal interest: notes from
+      several months of learning to work with AI agents, offered in case they help someone
+      building their own setup. It is one person&rsquo;s experience, not authority;
+      corrections and better designs are welcome, and none of this is for commercial use.
+      One boundary deserves plain words: the agent is used cautiously. No restricted data
+      and no sensitive material is given to it, and much of the machinery described
+      below exists to enforce exactly that.
+    </div>
+    <div class="rule" aria-hidden="true"></div>
+  </header>
+
+  <!-- ================= STAT STRIP ================= -->
+  <section class="stats" aria-label="The system in numbers">
+    <div class="stat-grid">
+      <a class="stat" href="#cat-skills"><div class="v">193</div><div class="l">reusable skills on demand</div></a>
+      <a class="stat" href="#cat-hooks"><div class="v">22</div><div class="l">guardrail hooks on live events</div></a>
+      <a class="stat" href="#cat-deny"><div class="v">120</div><div class="l">standing deny rules</div></a>
+      <a class="stat" href="#cat-memory"><div class="v">185</div><div class="l">typed memory files</div></a>
+      <a class="stat" href="#cat-rules"><div class="v">15</div><div class="l">domain rules files</div></a>
+      <a class="stat" href="#m5"><div class="v">71%</div><div class="l">critical reviews that reopened work</div></a>
+    </div>
+    <p class="stat-note">Counts are live probes of the configuration taken on 24 November 2026,
+    less a small number of individual components that are not listed.
+    The review rate comes from a dated 254-run recount (November 2026); like every effectiveness
+    figure on this page, it is an internal measurement from the harness&rsquo;s own logs,
+    descriptive rather than independently audited. Every tile links to the catalogue
+    section, or the module, behind its number.</p>
+  </section>
+
+  <!-- ================= PART I ================= -->
+  <header class="part-head" id="part-1">
+    <p class="part-label">Part I</p>
+    <h2>Orientation</h2>
+    <p class="part-sub">Why I built this, how to read the page, and the shape of my setup.</p>
+  </header>
+
+  <article class="module" id="m1">
+    <h3>Why I engineered a harness</h3>
+    <p>Claude Code is the agent; the <strong class="k">harness</strong> is everything I have
+    configured around it: instructions, guardrails, capabilities, verification machinery,
+    and memory. I built it because the failures I design against are process
+    failures: a fabricated citation, a join that silently drops records, a tool reaching
+    data it should never touch. A better model does not remove these risks;
+    <em>process</em> does, the way human error in a study is managed by protocol rather
+    than by hiring cleverer humans. Four goals govern every choice, in order:
+    <strong class="k">correctness</strong>, <strong class="k">data safety</strong>,
+    <strong class="k">auditability</strong>, <strong class="k">efficiency</strong>. The
+    rule throughout: put friction where mistakes are irreversible, and grant autonomy
+    where they are cheap.</p>
+    <details class="deep"><summary>In more depth</summary><div class="deep-body">
+      <p>The build itself is treated like a study: rules earn their place through measured
+      effect and are retired when they stop paying rent. Every count on this page is a live
+      probe of the configuration taken on the date above (a few individual items are
+      not listed, and the counts reflect that); the few numbers that cannot be
+      re-measured at build time carry their measurement date instead. Nothing is quoted from
+      memory, including the agent&rsquo;s own.</p>
+    </div></details>
+  </article>
+
+  <article class="module" id="m2">
+    <h3>How to read this page</h3>
+    <p>I assume you already know the basic Claude Code concepts (agents, hooks, permission
+    rules, skills, subagents, memory, MCP), so the page skips the introductions and goes
+    straight to what my setup does and, where it seems worth saying, why. Where a concept
+    needs more background than a sentence, I would rather point at better teachers than
+    paraphrase them: the official documentation at
+    <a href="https://code.claude.com/docs" target="_blank" rel="noopener">code.claude.com/docs</a>
+    covers every mechanism named here (instructions, hooks, permissions, skills, subagents,
+    memory) under the same names, and
+    <a href="https://www.anthropic.com/engineering" target="_blank" rel="noopener">Anthropic&rsquo;s
+    engineering articles</a> explain agent design far better than I could. Two reading
+    aids: each module opens with a short summary whose bold phrases carry the load, and
+    the &ldquo;In more depth&rdquo; folds hold the personal detail of how I actually run
+    things; on wider screens, the button in the navigation bar expands them all at once.</p>
+  </article>
+
+  <article class="module" id="m3" style="max-width:none">
+    <h3>My system at a glance</h3>
+    <p style="max-width:76ch">One diagram, six layers: this is my whole setup on a page. A
+    task enters on the right and flows
+    down: it is <strong>aligned</strong> (restated as checkable success criteria),
+    <strong>executed</strong> using the capability layer under the watch of the enforcement
+    layer, <strong>verified</strong> in proportion to its stakes, and <strong>reported</strong>
+    with evidence. What the session taught flows into memory, and scheduled audits watch the
+    whole machine.</p>
+    <div class="diagram">
+      <svg viewBox="0 0 980 590" role="img" aria-label="Architecture diagram: six stacked layers (instructions, enforcement, capabilities, verification, memory, self-maintenance) beside a four-phase task flow (align, execute, verify, report), with lessons feeding memory; the standing pause gate is described in the caption below.">
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#8A3D1E"/>
+          </marker>
+        </defs>
+        <!-- layer bands -->
+        <g font-family="-apple-system,'Segoe UI',system-ui,Arial,sans-serif">
+          <!-- band template: y = 40 + i*90 -->
+          <!-- 1 Instructions -->
+          <rect x="20" y="40" width="640" height="82" rx="10" fill="#FAF9F5" stroke="#E5E0D8"/>
+          <rect x="20" y="40" width="5" height="82" rx="2.5" fill="#D97757"/>
+          <text x="48" y="73" font-size="17" font-weight="600" fill="#141413">1 · Instructions</text>
+          <text x="48" y="98" font-size="13.5" fill="#6E6A63">The constitution the agent works under</text>
+          <text x="640" y="73" font-size="13.5" text-anchor="end" fill="#8A3D1E">1 global file + 15 rules</text>
+          <!-- 2 Enforcement -->
+          <rect x="20" y="130" width="640" height="82" rx="10" fill="#FAF9F5" stroke="#E5E0D8"/>
+          <rect x="20" y="130" width="5" height="82" rx="2.5" fill="#D97757"/>
+          <text x="48" y="163" font-size="17" font-weight="600" fill="#141413">2 · Enforcement</text>
+          <text x="48" y="188" font-size="13.5" fill="#6E6A63">Deterministic guardrails on the covered tool channels</text>
+          <text x="640" y="163" font-size="13.5" text-anchor="end" fill="#8A3D1E">22 hooks, 120 deny rules</text>
+          <!-- 3 Capabilities -->
+          <rect x="20" y="220" width="640" height="82" rx="10" fill="#FAF9F5" stroke="#E5E0D8"/>
+          <rect x="20" y="220" width="5" height="82" rx="2.5" fill="#D97757"/>
+          <text x="48" y="253" font-size="17" font-weight="600" fill="#141413">3 · Capabilities</text>
+          <text x="48" y="278" font-size="13.5" fill="#6E6A63">The toolbox: skills, subagents, commands, integrations</text>
+          <text x="640" y="253" font-size="13.5" text-anchor="end" fill="#8A3D1E">193 skills, 6 agents, 27 commands</text>
+          <!-- 4 Verification -->
+          <rect x="20" y="310" width="640" height="82" rx="10" fill="#FAF9F5" stroke="#E5E0D8"/>
+          <rect x="20" y="310" width="5" height="82" rx="2.5" fill="#D97757"/>
+          <text x="48" y="343" font-size="17" font-weight="600" fill="#141413">4 · Verification</text>
+          <text x="48" y="368" font-size="13.5" fill="#6E6A63">Peer review scaled to the stakes</text>
+          <text x="640" y="343" font-size="13.5" text-anchor="end" fill="#8A3D1E">five-level ladder</text>
+          <!-- 5 Memory -->
+          <rect x="20" y="400" width="640" height="82" rx="10" fill="#FAF9F5" stroke="#E5E0D8"/>
+          <rect x="20" y="400" width="5" height="82" rx="2.5" fill="#D97757"/>
+          <text x="48" y="433" font-size="17" font-weight="600" fill="#141413">5 · Memory</text>
+          <text x="48" y="458" font-size="13.5" fill="#6E6A63">The lab notebook that survives between sessions</text>
+          <text x="640" y="433" font-size="13.5" text-anchor="end" fill="#8A3D1E">185 typed files</text>
+          <!-- 6 Self-maintenance -->
+          <rect x="20" y="490" width="640" height="82" rx="10" fill="#FAF9F5" stroke="#E5E0D8"/>
+          <rect x="20" y="490" width="5" height="82" rx="2.5" fill="#D97757"/>
+          <text x="48" y="523" font-size="17" font-weight="600" fill="#141413">6 · Self-maintenance</text>
+          <text x="48" y="548" font-size="13.5" fill="#6E6A63">Audits that watch the whole machine</text>
+          <text x="640" y="523" font-size="13.5" text-anchor="end" fill="#8A3D1E">weekly audits, daily backups</text>
+
+          <!-- flow column -->
+          <text x="822" y="52" font-size="13.5" text-anchor="middle" fill="#6E6A63">A task arrives</text>
+          <line x1="822" y1="62" x2="822" y2="86" stroke="#8A3D1E" stroke-width="1.6" marker-end="url(#arr)"/>
+          <rect x="722" y="92" width="200" height="52" rx="10" fill="#FAF9F5" stroke="#D97757"/>
+          <text x="822" y="124" font-size="16" font-weight="600" text-anchor="middle" fill="#141413">Align</text>
+          <line x1="822" y1="144" x2="822" y2="176" stroke="#8A3D1E" stroke-width="1.6" marker-end="url(#arr)"/>
+          <rect x="722" y="182" width="200" height="52" rx="10" fill="#FAF9F5" stroke="#D97757"/>
+          <text x="822" y="214" font-size="16" font-weight="600" text-anchor="middle" fill="#141413">Execute</text>
+          <line x1="822" y1="234" x2="822" y2="266" stroke="#8A3D1E" stroke-width="1.6" marker-end="url(#arr)"/>
+          <rect x="722" y="272" width="200" height="52" rx="10" fill="#FAF9F5" stroke="#D97757"/>
+          <text x="822" y="304" font-size="16" font-weight="600" text-anchor="middle" fill="#141413">Verify</text>
+          <line x1="822" y1="324" x2="822" y2="356" stroke="#8A3D1E" stroke-width="1.6" marker-end="url(#arr)"/>
+          <rect x="722" y="362" width="200" height="52" rx="10" fill="#FAF9F5" stroke="#D97757"/>
+          <text x="822" y="394" font-size="16" font-weight="600" text-anchor="middle" fill="#141413">Report</text>
+          <line x1="822" y1="414" x2="822" y2="446" stroke="#8A3D1E" stroke-width="1.6" stroke-dasharray="4 4" marker-end="url(#arr)"/>
+          <rect x="722" y="452" width="200" height="52" rx="10" fill="none" stroke="#8A3D1E" stroke-dasharray="4 4"/>
+          <text x="822" y="479" font-size="14" font-weight="600" text-anchor="middle" fill="#8A3D1E">Lessons feed</text>
+          <text x="822" y="496" font-size="14" font-weight="600" text-anchor="middle" fill="#8A3D1E">memory</text>
+        </g>
+      </svg>
+      <p class="diagram-caption">Pause exceptions ride across the whole flow rather than
+      sitting in it: an enumerated list of situations (irreversible actions, scope changes,
+      missing information) where the agent must stop and ask rather than proceed, whichever
+      phase it is in.</p>
+    </div>
+    <details class="deep" style="max-width:76ch"><summary>In more depth</summary><div class="deep-body">
+      <p>A worked example: &ldquo;summarise these twenty papers into a table&rdquo; arrives.
+      Alignment restates it (which papers, which columns, what counts as done) and confirms
+      nothing is missing. Execution fans the reading out to subagents, drafts the table, and
+      cites each source. Enforcement silently checks every file it touches. Verification
+      re-checks each citation against the bibliographic record because that error class
+      survives self-review. The report separates what was verified from what was not, and the
+      one lesson learnt about a mis-formatted source becomes a memory note.</p>
+      <p>The diagram doubles as a map of this document: layers one to six correspond to the
+      modules that follow, and the catalogue in Part VI works through the
+      instruction, enforcement and capability layers item by item.</p>
+    </div></details>
+  </article>
+
+  <!-- ================= PART II ================= -->
+  <header class="part-head" id="part-2">
+    <p class="part-label">Part II</p>
+    <h2>The core contract</h2>
+    <p class="part-sub">How a task moves from request to verified result.</p>
+  </header>
+
+  <article class="module" id="m4">
+    <h3>The task lifecycle contract</h3>
+    <p>Every task runs under a five-part contract: <strong class="k">Align</strong>,
+    <strong class="k">Execute</strong>, <strong class="k">Pause&nbsp;exceptions</strong>,
+    <strong class="k">Verify</strong>, <strong class="k">Report</strong>. At intake the
+    task is restated as checkable success criteria; if success cannot be verified,
+    ambiguity would change the approach, or information is missing that only I hold, the
+    agent asks first; otherwise it runs to completion. Within a task I have defined, autonomy
+    is the default, revoked only at a closed pause list: irreversible or
+    outward-facing actions, genuine scope changes, information only I can supply, edits
+    to safety-critical configuration (consent must name the specific file), and security
+    gates no blanket &ldquo;just do it&rdquo; can loosen. When in doubt whether a pause
+    applies, it does.</p>
+    <details class="deep"><summary>In more depth</summary><div class="deep-body">
+      <p>One permanent reservation makes the philosophy concrete: the agent stages and
+      commits code but never pushes to a remote. When a push is the right next step, it
+      prints the exact command and hands over. Publication, in any form, stays a human
+      act.</p>
+      <p>Reporting discipline closes the loop: the first sentence states what happened;
+      failing output is pasted verbatim, never paraphrased; every claim is separated into
+      <em>verified via tool output</em> versus <em>unverified</em>. Fabricated progress is
+      treated as the worst possible failure, worse than honest failure, because it poisons
+      trust in every future report.</p>
+    </div></details>
+  </article>
+
+  <article class="module" id="m5">
+    <h3>The verification ladder</h3>
+    <p>Verification depth scales with stakes.</p>
+    <div class="ladder" role="img" aria-label="Five ascending bars standing on a baseline: level 0 no check, level 1 self-check plus evidence line, level 2 inline review loop via /qc --loop, level 3 one isolated review via /qc --sub, level 4 looped isolated review via /qc --loop --sub.">
+      <div class="ladder-bars" aria-hidden="true">
+        <div class="bar" style="height:26px;background:#F3DDD2"></div>
+        <div class="bar" style="height:44px;background:#EDC8B4"></div>
+        <div class="bar" style="height:62px;background:#E7B196"></div>
+        <div class="bar" style="height:80px;background:#E09277"></div>
+        <div class="bar" style="height:98px;background:#D97757"></div>
+      </div>
+      <div class="ladder-base" aria-hidden="true"></div>
+      <div class="ladder-labels">
+        <div><div class="lv">L0</div><div class="tag">no check</div></div>
+        <div><div class="lv">L1</div><div class="tag">self-check + evidence line</div><div class="tag" style="font-family:var(--mono);font-size:.68rem">(&lt;claim&gt; via &lt;tool&gt; + &lt;output&gt;)</div></div>
+        <div><div class="lv">L2</div><div class="tag">inline review loop</div><div class="tag" style="font-family:var(--mono);font-size:.68rem">(/qc --loop)</div></div>
+        <div><div class="lv">L3</div><div class="tag">one isolated review</div><div class="tag" style="font-family:var(--mono);font-size:.68rem">(/qc --sub)</div></div>
+        <div><div class="lv">L4</div><div class="tag">looped isolated review</div><div class="tag" style="font-family:var(--mono);font-size:.68rem">(/qc --loop --sub)</div></div>
+      </div>
+    </div>
+    <div class="table-scroll"><table class="cat" style="max-width:76ch;margin:10px 0 4px">
+      <thead>
+      <tr><th scope="col">Level</th><th scope="col">Typical work at this level</th></tr>
+      </thead>
+      <tbody>
+      <tr><td class="n">L0</td><td>Quick factual lookups, conversation, reading something back.</td></tr>
+      <tr><td class="n">L1</td><td>Routine single-file edits, throwaway scripts, short answers with reasoning.</td></tr>
+      <tr><td class="n">L2</td><td>First drafts of key documents, changes across a few files, summaries of an analysis session.</td></tr>
+      <tr><td class="n">L3</td><td>Near-final documents, a finished pipeline, a large refactor, a new skill or agent.</td></tr>
+      <tr><td class="n">L4</td><td>The harness&rsquo;s own configuration, and any high-stakes work about to leave the building.</td></tr>
+    </tbody>
+    </table></div>
+    <p>Some error classes are <strong class="k">blindness-type failures</strong>,
+    invisible to self-review: a fabricated citation is internally consistent, so
+    citations, transcribed numbers and cross-references are checked with tools against
+    the external record. From L3 up, <strong class="k">isolation</strong> is the active
+    ingredient: the reviewer never inherits the authoring conversation. And
+    <strong class="k">verification always runs on the strongest model</strong>. Isolated
+    review reopened work self-review had passed in <strong>71% of L4 and 77% of L3 runs</strong>
+    (a run counts when any isolated reviewer, a panel member or the final gate, reopened it;
+    254-run recount, November 2026; internal, not independently audited), so the gate
+    stays.</p>
+    <details class="deep"><summary>In more depth</summary><div class="deep-body">
+      <p>How a level is chosen: score the stakes and the irreversibility, take the higher,
+      and when in doubt round up. The looped forms continue review rounds until a full pass
+      lands clean. At L2 the loop runs inline: review and fix until one full-coverage round
+      finds nothing critical or major, then one last round re-read from disk that changes
+      nothing, which catches the defect a fix itself introduced. It buys no independence,
+      though; the same context is re-reading itself, and that is what L3 adds. At L4 the
+      loop adds isolated reviewers and a final gate on the strongest model, because the
+      files it guards are the ones every future session inherits. A loop that runs out of
+      rounds records its exit as paused, never as passed.</p>
+      <p>For changes to the harness itself, the isolated panel also takes a reviewer from
+      another model family, a GPT model, and a DeepSeek model can join as a second outside
+      family, because a Claude reviewer shares Claude&rsquo;s blind spots. They add
+      coverage, not authority: the final gate still runs on the strongest Claude model. The
+      DeepSeek route also sits behind an explicit egress gate of its own, and credentials
+      never pass it.</p>
+      <p>An isolated review is mechanically separated from the author: a fresh agent, a
+      clean context, the work read back from disk rather than from the conversation, and a
+      verdict returned in a structured file that records which model actually performed
+      the review, so the check leaves an audit trail of its own.</p>
+      <p>The evidence line is the cheapest habit in the whole system: one line in every
+      routine completion report separating claims verified against tool output from claims
+      merely believed. It makes overclaiming structurally awkward.</p>
+    </div></details>
+  </article>
+
+  <!-- ================= PART III ================= -->
+  <header class="part-head" id="part-3">
+    <p class="part-label">Part III</p>
+    <h2>Safety architecture</h2>
+    <p class="part-sub">Why the agent is treated as untrusted, and what enforces that.</p>
+  </header>
+
+  <article class="module" id="m7">
+    <h3>Research-data isolation</h3>
+    <p>The agent is designed never to access drives other than C, and it is treated as
+    <strong class="k">untrusted software</strong>
+    with respect to them: independent enforcement layers block its tools from those
+    drives entirely, and the rule supersedes every convenience. Enforcement is code
+    rather than instructions because an agent that can read a file can be tricked into
+    echoing it (prompt injection is real); a boundary worth having must hold even when
+    the agent is wrong, confused, or manipulated. Three layers: static permission rules
+    denying whole path classes; runtime hooks inspecting the covered tool channels before
+    a call executes; and written policy for the residue no pattern-matching can catch.
+    Residual risks are catalogued, and the layers are re-exercised weekly rather than
+    assumed sound. Two honest limits: this is defence in depth at the tool layer, not an
+    operating-system security boundary (the outermost lines remain the
+    organisation&rsquo;s approvals and access controls), and the friction is accepted,
+    because data breaches are irreversible and inconvenience is not.</p>
+  </article>
+
+  <article class="module" id="m8">
+    <h3>Deterministic guardrails</h3>
+    <p>Model compliance is probabilistic; guardrails are not.
+    <strong class="k">Hooks</strong>, small programs firing on events like <em>before
+    every tool call</em>, enforce rules in code whatever the model believes;
+    <strong>22</strong> are registered, alongside a <strong>120-entry</strong> deny
+    list, and <a href="#cat-hooks">the catalogue below</a> names each. Guards that
+    protect data fail closed; advisory paths fail open but warn; where fail-closed would
+    be worse than the risk, the exception is documented, not hidden. Two habits keep it
+    honest: <strong class="k">guards must prove they can fail</strong>, audit
+    scripts injecting faults to prove each check still fires (a check that cannot fail
+    is decoration); and <strong class="k">honesty about limits</strong>, literal
+    pattern-matching documented as a speed bump, not a security boundary. False positives
+    are accepted: a blocked convenience beats a silent breach.</p>
+    <details class="deep"><summary>In more depth</summary><div class="deep-body">
+      <p>The layers are deliberately redundant. Static deny rules and runtime hooks block
+      independently, so either can catch what the other misses, and the written policy covers
+      what no literal matcher can see, such as a path assembled at run time. Defence in depth
+      is the admission that every single layer has holes. Time is one of those holes: a hook
+      that runs out of time lets the call through, so a tool call too large to be checked
+      within the limit is refused outright, and the shell guard refuses every command if the
+      drive check it relies on is missing or fails to load, rather than running without
+      it.</p>
+      <p>The self-testing is specific rather than rhetorical. The two most dangerous guards
+      ship with their own weekly test suites: every pattern is exercised individually,
+      seeded faults must be caught, and the suite pins its expected case count so a
+      silently shrinking run reads as failure. Even the guards&rsquo; documented
+      over-blocks, benign commands they wrongly refuse, are pinned in the tests, so a later
+      &ldquo;fix&rdquo; that quietly widens a hole fails the suite instead of shipping.</p>
+    </div></details>
+  </article>
+
+  <!-- ================= PART IV ================= -->
+  <header class="part-head" id="part-4">
+    <p class="part-label">Part IV</p>
+    <h2>The capability system</h2>
+    <p class="part-sub">The layers that make the agent capable without making it reckless.</p>
+  </header>
+
+  <article class="module" id="m9">
+    <h3>Layered instructions and rules</h3>
+    <p>The instruction layer is one global file plus <strong>15 rules files</strong>, one
+    domain each; four load only when the work touches matching paths, and the other
+    eleven are always resident. The context window is a budget, so the resident set is
+    held at roughly <strong>102,000 characters</strong>, 42% below its undieted baseline
+    (measured 24 November 2026, in characters). Two disciplines keep the
+    layer maintainable: <strong class="k">single definition point</strong>, each rule
+    stated once and pointed at everywhere else, because copies drift and pointers do not;
+    and <strong class="k">selective loading</strong>, so the R style guide spends nothing
+    in a session about slide design.</p>
+    <details class="deep"><summary>In more depth</summary><div class="deep-body">
+      <p>The instruction layer is treated like reference software, not notes: rules carry
+      dates, cross-references, and known-limitation sections, and a weekly audit checks that
+      every cross-file reference still holds. When two files disagree, one of them is declared
+      canonical and the other becomes a pointer. Ties are never left standing. The four
+      path-scoped files are the coding style, a reference script skeleton, the proofreading
+      protocol and the quality rubrics; the fifteen listed here are named in
+      <a href="#cat-rules">the catalogue</a>.</p>
+      <p>The budget holds because of progressive disclosure: a resident rule keeps only
+      its operative text, and the history, forensics and worked reasoning behind it move
+      word for word into reference files the agent opens only when the rule points there.
+      Replies have a budget too: an optional compressed output style, adapted from an
+      open-source prompt, trims filler at three strengths but never touches numbers,
+      negations, the evidence line or the markers that say how firmly a claim is held, and
+      anything written to a file stays in plain prose. The resident files also carry size
+      ceilings, one for the whole set and one per file, measured weekly and flagged at edit
+      time, and the quarterly review described under self-auditing puts every resident line
+      to one test: does any run actually read it?</p>
+    </div></details>
+  </article>
+
+  <article class="module" id="m10">
+    <h3>Skills and the learning loop</h3>
+    <p>A skill is a packaged procedure the agent loads on demand, an SOP. The library
+    holds <a href="#cat-skills"><strong>193</strong> of them</a>, 211 skills/commands once the commands are counted in: domain and workflow
+    skills and, the class I value most, <strong class="k">hard-won debugging
+    lessons</strong> written up so no problem has to be solved twice; agents have no
+    episodic memory, so an uncaptured pitfall is rediscovered at full price. The library
+    is curated like an SOP register, with re-evaluation dates and one hard rule:
+    <strong class="k">every third-party skill passes a security vetting protocol before
+    first use</strong>, because a skill is instructions written by a stranger. The cost
+    of it: an untended library rots into contradictory advice.</p>
+    <details class="deep"><summary>In more depth</summary><div class="deep-body">
+      <p>Anatomy of a skill: a folder, one <code>SKILL.md</code> whose header carries a name
+      and a one-line trigger description, and optionally scripts and reference files. The
+      trigger line is where the engineering lives. It decides when the skill surfaces, and
+      a vague one means the lesson sleeps through the exact situation it was written
+      for.</p>
+      <p>Those trigger lines are themselves a budget, because the listing of every skill
+      rides along in every session. So the listing is tiered: 26 skills keep their full
+      description, 105 are listed by name alone and still load on demand, and 62 with no
+      recorded use are switched off. A description that outgrows the listing&rsquo;s
+      cut-off would lose its trigger words without any error, so a check flags it at commit
+      time as well as in the weekly audit.</p>
+      <p>Vetting, for anything third-party: read the full text before first use, check what
+      it asks the agent to run and where it would send data, record the verdict in a
+      registry, re-vet when the upstream changes. The registry reconciles against the
+      on-disk library in both directions, and that reconciliation is itself audited.</p>
+    </div></details>
+  </article>
+
+  <article class="module" id="m10b">
+    <h3>After every task: retrospection and self-evolution</h3>
+    <p>If I had to pick one part of the setup as its most distinctive, it would be this.
+    At the completion of any substantive task, the agent runs a standing
+    <strong class="k">retrospection check</strong>: did this work produce something whose
+    value outlives it, either a correction that generalises or a method verified here
+    that would otherwise be re-derived from scratch next time? A hit is not archived on
+    first sight. It becomes a <strong class="k">tentative note</strong> at low starting
+    confidence, and repeated observations from different sessions or dates raise that
+    confidence; only a note that clears a promotion bar (confidence at or above 0.9,
+    observed in at least two distinct sessions or dates) earns a proposal to become a
+    full skill or lesson, which I approve or skip. <strong class="k">One sighting never
+    archives anything</strong>: recurrence, not how striking the moment felt, is what
+    promotes. Every self-evolution proposal also passes a necessity review first (is the
+    status quo actually broken, or does proposing feel like progress?), and anything
+    promoted into a skill still passes the same vetting gate as everything else.</p>
+    <details class="deep"><summary>In more depth</summary><div class="deep-body">
+      <p>Two further pieces close the loop. The heavyweight review skill keeps its own
+      <strong>pitfalls ledger</strong>: when a check is fooled once, the episode is
+      written into the skill&rsquo;s pitfalls file with its tell-tale signs, so the next
+      review round starts warier than the last. And skill files themselves are
+      periodically evaluated against a structured quality rubric by a dedicated
+      improvement skill, which proposes concrete edits rather than silently applying
+      them. Proposals do not nag either: one I skip comes back after a fortnight at the
+      earliest, and two refusals in separate sessions end the automatic offers for good, although I can still
+      promote the note by name.</p>
+      <p>What the mechanism has produced so far: the largest single class in the memory
+      store is captured lessons, and a large share of the skill library is narrow lesson
+      capsules that fire rarely by design. A capsule that triggers once a quarter and
+      saves an afternoon each time has felt like a good trade.</p>
+    </div></details>
+  </article>
+
+  <article class="module" id="m11">
+    <h3>Subagents and model routing</h3>
+    <p>A subagent is a separate agent instance with its own clean context. Six custom
+    agents are defined, review roles pinned to the strongest model, mechanical roles on
+    lighter ones; <a href="#cat-agents">the catalogue below</a> describes each. Two
+    reasons to spawn one: <strong class="k">isolation</strong>, an independent reviewer
+    must not share the author&rsquo;s context or it inherits the author&rsquo;s blind
+    spots; and <strong class="k">offload</strong>, bulk reading in a disposable context
+    that keeps the main session&rsquo;s working memory clear. Routing follows one rule,
+    <em>the cheapest model that clears the quality bar</em>, with one exemption that
+    never moves: no cost-saving mode may downgrade a reviewer. Spawning costs; a
+    necessity gate precedes fan-out.</p>
+    <details class="deep"><summary>In more depth</summary><div class="deep-body">
+      <p>The pinning matters as much as the choice: each agent&rsquo;s model and effort are
+      fixed in its own definition file, so a busy session cannot quietly hand a verification
+      job to a cheaper reviewer. A review role on a lighter model is the routing rule
+      working as intended: the bar is set by the task, not the job title. Dispatches of
+      mechanical work name their lighter model explicitly rather than inheriting the
+      session&rsquo;s, so the saving is a decision, never an accident, and each launch is
+      logged with the model that actually ran, which is how routing drift would be
+      noticed.</p>
+    </div></details>
+  </article>
+
+  <article class="module" id="m12">
+    <h3>The memory system</h3>
+    <p>Persistent memory is a folder of typed Markdown files, <strong>185</strong> in the
+    live store: preferences, feedback (&ldquo;corrected once; never again&rdquo;),
+    project state, references, behind an index loaded at session start. The repository
+    records what the code does; the memory records what only conversations know. The
+    store is <strong class="k">budget-guarded</strong>: the index is re-measured by a hook
+    after every edit, and every note except the archives has a size ceiling checked
+    weekly, so nothing in use can silently bloat; wrong memories are deleted, because a wrong memory is worse than an
+    assistant with amnesia.</p>
+    <details class="deep"><summary>In more depth</summary><div class="deep-body">
+      <p>The store&rsquo;s shape says what experience taught: the largest single class is
+      captured lessons (72), ahead of reference pointers (37) and feedback corrections (34),
+      with 17 project-state notes. The largest class is exactly the one that stops repeated
+      mistakes; <a href="#cat-memory">the catalogue</a> breaks the store down. Notes stay
+      lean by moving rather than deleting: version history, superseded readings and old
+      case narratives go word for word into an archive folder, and the change log rotates
+      into monthly archives, so the live files hold only what is current.</p>
+      <p>Form matters more than volume. A feedback note records the why and the
+      how-to-apply, not only the correction, because a rule without its reason gets
+      misapplied. Corrections to old notes quote the superseded wording instead of
+      overwriting it, the discipline a lab notebook demands. And because several sessions
+      can run at once, shared files are re-read immediately before writing and checked
+      immediately after, which shrinks the window in which two sessions could trample each
+      other.</p>
+    </div></details>
+  </article>
+
+  <article class="module" id="m13">
+    <h3>Commands and integrations</h3>
+    <p>Custom slash commands encode recurring rituals as executable checklists, from
+    intake charters to decision briefs and handovers. <strong>27</strong> are defined,
+    several as escalation chains, a light default deepened by flags as stakes rise;
+    anything done twice by hand ends up inconsistent. Integrations follow a
+    <strong class="k">minimal-surface policy</strong>: <strong>4</strong> tool servers,
+    all configured directly, each security-assessed before connection, read-only preferred, unused ones removed; every
+    integration is also attack surface.</p>
+    <details class="deep"><summary>In more depth</summary><div class="deep-body">
+      <p>The decision brief is the ritual I lean on most: whenever a non-trivial choice
+      needs me, the agent leads with a compact, self-contained brief (background,
+      verification tier, the core trade-off, options, a recommendation) so the decision
+      can be made in seconds without re-reading the analysis. Delegation works when
+      deciding stays cheap. A companion command gathers everything still waiting on me into
+      one numbered list, blocking items first, each with where to go and what to run.</p>
+      <p>Escalation chains keep one name for one job at every depth: the review command
+      runs light by default, and flags add drain rounds, an isolated reviewer, or a second
+      model family as stakes rise. The alternative, a different tool at every tier, is how
+      rituals die. The most-used commands are listed with the skills in
+      <a href="#cat-skills">the skill library</a>.</p>
+      <p>Several sessions often run side by side, so they can coordinate directly: a
+      session can list the other agent sessions on the machine and message one, and a
+      terminal multiplexer reaches an agent from another vendor that maintains its own port
+      of this harness. A message from another agent is treated as information to weigh,
+      never as my instruction, and it can never grant a permission I have not given.</p>
+    </div></details>
+  </article>
+
+  <!-- ================= PART V ================= -->
+  <header class="part-head" id="part-5">
+    <p class="part-label">Part V</p>
+    <h2>Keeping it honest</h2>
+    <p class="part-sub">The machinery that audits the machinery.</p>
+  </header>
+
+  <article class="module" id="m14">
+    <h3>The self-auditing harness</h3>
+    <p>The harness audits itself on a schedule: a weekly
+    <strong class="k">configuration-drift audit</strong>, a weekly
+    <strong class="k">security review</strong>, a watchdog on the audits themselves,
+    and daily backups; configuration rots silently, and the alternative
+    is discovering rot from its consequences. Its checks are themselves checked:
+    fault-injection deliberately breaks the guards that matter most and requires the
+    audit to notice, so a green result cannot come from a check that quietly died.
+    Beyond the schedule, a <strong class="k">stumble-detection rule</strong>: any defect
+    that reaches me escalates that task class one verification level, for good.</p>
+    <details class="deep"><summary>In more depth</summary><div class="deep-body">
+      <p>Two habits from this module have served me beyond it. Log every variance: when
+      reality and the record disagree, the discrepancy is written down before it is
+      resolved. And measure the monitor: an audit that has never flagged anything is
+      assumed broken until fault injection proves otherwise.</p>
+      <p>Once a quarter a deeper review, which only I can start, goes over the whole
+      harness. Its first stage only reads: each dimension of the harness gets its own
+      isolated reviewer, and no reviewer&rsquo;s conclusion counts until the main session has
+      checked it. Slimming is one of its standing questions. In the second stage nothing
+      changes without my approval of that exact item, and the review passes only if its
+      instruments show no new failure, the resident instructions have not grown without a
+      line-by-line account, and every change that landed was approved and verified.</p>
+      <p>The records the audits rely on are guarded at the point of writing. Each review
+      round leaves a structured log line, and those lines, like the record of which
+      reviewer said what, are appended only through a validating writer that rejects a
+      malformed row instead of storing it, so the evidence behind figures such as the
+      reopen rates cannot quietly decay. Clean-up follows the same caution: deletion needs
+      a recovery window, so cleared files move to a holding area whose expiry window is
+      declared before anything enters it, and the few places that still delete their own scratch files outright
+      are listed as open items rather than ignored.</p>
+    </div></details>
+  </article>
+
+  <article class="module principles" id="m15">
+    <h3>Design principles and trade-offs</h3>
+    <p style="max-width:76ch">Eight principles I keep coming back to.</p>
+    <ol>
+      <li><strong>Bounded autonomy</strong> Free by default, stopped at enumerated gates; never the reverse.</li>
+      <li><strong>Determinism over trust</strong> What must not depend on the model&rsquo;s judgement is enforced in code.</li>
+      <li><strong>Verification scaled to stakes</strong> And the gate never moves, whatever the economy drive.</li>
+      <li><strong>Evidence-based tuning</strong> The harness is measured like a study; rules that stop earning their keep are retired.</li>
+      <li><strong>Friction as a feature</strong> Where errors are irreversible, the human pause is the control.</li>
+      <li><strong>Quality is never traded for tokens</strong> Efficiency only where the outcome is provably unchanged.</li>
+      <li><strong>One definition point</strong> Canon stated once, pointed at everywhere else.</li>
+      <li><strong>Honest limits</strong> Every guard&rsquo;s blind spots are documented and owned, not wished away.</li>
+    </ol>
+    <p style="max-width:76ch;margin-top:22px">The frame that made all of this feel
+    manageable to me: treat the harness as a <em>study protocol for working with an
+    AI</em>. Pre-registered decisions, access control, QC proportional to stakes, an
+    audit trail. The instrument was new to me; the epistemology was not, and borrowing
+    it saved me from designing on instinct.</p>
+    <details class="deep" style="max-width:76ch"><summary>The standing trade-offs, faced rather than hidden</summary><div class="deep-body">
+      <div class="table-scroll"><table class="tradeoffs">
+        <thead>
+        <tr><th scope="col">Tension</th><th scope="col">How it is resolved</th></tr>
+        </thead>
+        <tbody>
+        <tr><td>Autonomy vs safety</td><td>Autonomy by default; a short, closed pause list of hard gates.</td></tr>
+        <tr><td>Speed vs friction</td><td>Friction wins wherever the error would be irreversible.</td></tr>
+        <tr><td>Token cost vs verification</td><td>Measured head-to-head; verification won and the gate stayed.</td></tr>
+        <tr><td>Resident context vs capability</td><td>Budgeted, dieted, and guarded by an automatic re-measure; the detail waits in references opened on demand.</td></tr>
+        <tr><td>Accumulation vs curation</td><td>Curation, with scheduled gardening and re-evaluation dates.</td></tr>
+        <tr><td>Openness vs privacy</td><td>Mechanisms and most component names disclosed; people, projects, exact guard patterns and a few individual components withheld, lint-enforced.</td></tr>
+      </tbody>
+    </table></div>
+    </div></details>
+  </article>
+
+  <!-- ================= PART VI ================= -->
+  <header class="part-head" id="part-6">
+    <p class="part-label">Part VI</p>
+    <h2>The catalogue, item by item</h2>
+    <p class="part-sub">Everything above described the design; this part names the components
+    behind most of these numbers, with what each one does, in case any of them fits
+    your work. Identifiers tied to people, projects, or data providers are held back,
+    as is the exact text of the guard patterns.</p>
+  </header>
+
+  <!-- SKILLS-SECTION-START (generated by tools-private/gen_skills_v4.py; edit the generator, not this block) -->
+  <article class="module cat" id="cat-skills">
+    <h3>The skill library</h3>
+    <p class="cat-intro">The library holds skills and commands as one set, so its unit here is the skill/command. A skill is a folder holding one Markdown procedure plus any scripts it needs, with a one-line description that tells the agent when to load it; a command is a single file that the user or the agent calls by name after a slash. Where a command only forwards to a skill of the same name, the two count as one entry, listed under the skill&rsquo;s name: 211 skills/commands in all (193 skills and 27 commands, nine of them such wrappers). The library grew one lesson at a time; nobody sat down to write 211 procedures. The table below lists the most-used skills/commands, ordered from most to least used; each listed entry has at least two recorded invocations, and a few individual entries are not listed, so the table is not the complete usage ranking (frequency read from the harness&rsquo;s own usage telemetry, late April to 24 November 2026, which records commands as well as skills; the telemetry began months after the library did). The name is the actual folder or file name, verbatim, with a leading slash marking a command, which is why a few read like error messages: the long hyphenated ones are usually one specific debugging lesson, written up so it never has to be learnt twice. Origin credits where each entry came from; the self-built entries are split into ones I proposed and designed myself and ones the agent distilled from a session lesson under the retrospection loop and I then reviewed. Every third-party skill listed has passed a security vetting protocol. Summaries are genericised where a description touched a named dataset.</p>
+    <div class="table-scroll"><table class="cat">
+      <thead>
+      <tr><th scope="col">Skill/command</th><th scope="col">What it does</th><th scope="col">Origin</th></tr>
+      </thead>
+      <tbody>
+      <tr><td class="n">qc</td><td>Runs a structured five-dimensional review of code, plans, documents, data or advice on request.</td><td>self-built (my own design)</td></tr>
+      <tr><td class="n">/brief</td><td>Turns any non-trivial choice into a compact decision brief, self-reviewed before it is shown.</td><td>self-built (my own design)</td></tr>
+      <tr><td class="n">claudeception</td><td>Extracts reusable lessons from a work session and turns them into new skills or short notes.</td><td>adapted and extended from GitHub blader/Claudeception (MIT)</td></tr>
+      <tr><td class="n">/checkpoint</td><td>Captures session state into a resume-ready block before context compaction.</td><td>self-built (my own design)</td></tr>
+      <tr><td class="n">/auto-run</td><td>Runs the current task to the end with safety-bounded decision autonomy; outward-facing or irreversible steps still stop for me.</td><td>self-built (my own design)</td></tr>
+      <tr><td class="n">/necess</td><td>Runs a necessity review of the agent's own proposals, a standing filter against action bias.</td><td>self-built (my own design)</td></tr>
+      <tr><td class="n">/handoff</td><td>Generates a handover document so the next session starts warm.</td><td>self-built (my own design)</td></tr>
+      <tr><td class="n">skill-vetter</td><td>Runs a security-first review of a new tool or extension before it is installed.</td><td>inspired by the same-named skill in GitHub UseAI-pro/openclaw-skills-security (MIT); rewritten locally</td></tr>
+      <tr><td class="n">/work</td><td>Summarises the session with a numbered remaining-work list, snapshotted to disk for recovery.</td><td>self-built (my own design)</td></tr>
+      <tr><td class="n">/days</td><td>Executes the recommendation the agent has just made (&ldquo;do as you suggested&rdquo;).</td><td>self-built (my own design)</td></tr>
+      <tr><td class="n">darwin-skill</td><td>Automatically evaluates and improves Claude Code skill files against a structured quality rubric.</td><td>third-party: GitHub alchaincyf/darwin-skill</td></tr>
+      <tr><td class="n">grill-with-docs</td><td>Stress tests a plan against a project's existing decisions and terminology, recording agreements to persistent documents.</td><td>third-party: GitHub mattpocock/skills (MIT), adapted locally</td></tr>
+      <tr><td class="n">cross-model-fact-check-via-codex-cli</td><td>Runs an independent fact check using a separate AI model to verify numbers, citations or attributions.</td><td>self-built (distilled by the agent from session lessons)</td></tr>
+      <tr><td class="n">codex-exec-hangs-when-prompt-permits-tool-calls</td><td>Diagnoses a command line AI tool hanging on Windows whenever its prompt allows any tool call.</td><td>self-built (distilled by the agent from session lessons)</td></tr>
+      <tr><td class="n">sharingan</td><td>Reviews and improves the Claude Code configuration, exploring new capability building opportunities from external resources.</td><td>self-built (my own design)</td></tr>
+      <tr><td class="n">grill-me</td><td>Interviews the user repeatedly about a plan or design until reaching a shared, stress tested understanding.</td><td>third-party: GitHub mattpocock/skills (MIT), adapted locally</td></tr>
+      <tr><td class="n">/prompt</td><td>Writes the continuation prompt for the next session.</td><td>self-built (my own design)</td></tr>
+      <tr><td class="n">/rus</td><td>Runs a quick critical self-review of the last response, the lightweight sibling of the deep review.</td><td>self-built (my own design)</td></tr>
+      <tr><td class="n">herdr</td><td>Drives a terminal multiplexer for coding agents, so one session can inspect panes or message another agent; used only on explicit request.</td><td>third-party: documentation for the herdr terminal multiplexer (exact source not independently verified)</td></tr>
+      <tr><td class="n">claude-code-read-pdf-pdftoppm-missing</td><td>Provides a fallback way to read PDF text or render page images when a required tool is missing.</td><td>self-built (distilled by the agent from session lessons)</td></tr>
+      <tr><td class="n">verify-inherited-state-before-acting</td><td>Advises re-checking live system state before acting on an inherited or previously summarised status.</td><td>self-built (distilled by the agent from session lessons)</td></tr>
+      <tr><td class="n">/explain</td><td>Re-explains technical output in plain language for non-technical audiences.</td><td>self-built (my own design)</td></tr>
+      <tr><td class="n">relay</td><td>Tracks tasks, decisions and progress across sessions for a multi-session project using local state files.</td><td>self-built (my own design)</td></tr>
+      <tr><td class="n">disk-cleanup</td><td>Finds reclaimable disk space and clears it only after review, moving files into a dated holding folder; the final delete is always left to the user.</td><td>self-built (my own design)</td></tr>
+      <tr><td class="n">/update-progress</td><td>Refreshes a project's status files so they state the current state, replacing old text rather than appending to it.</td><td>self-built (my own design)</td></tr>
+      <tr><td class="n">know-unknowns</td><td>Runs a quiz-based diagnosis to find blind spots in a plan, script, document or other piece of work.</td><td>self-built (my own design)</td></tr>
+      <tr><td class="n">manuscript-xref-checker</td><td>Checks that the figure, table and supplementary references in a document's text match the labels that actually exist.</td><td>self-built (my own design)</td></tr>
+      <tr><td class="n">/user-action</td><td>Lists every item waiting on the user, blocking ones first, each with where to go, what to do and what to run.</td><td>self-built (my own design)</td></tr>
+      <tr><td class="n">agent-reach</td><td>Searches, reads and interacts across many web platforms, including code hosting and video sites.</td><td>third-party: GitHub Panniantong/Agent-Reach</td></tr>
+      <tr><td class="n">/bgjob</td><td>Pauses a long background job, by suspending it or by stopping it with a checkpoint, and resumes it later.</td><td>self-built (my own design)</td></tr>
+      <tr><td class="n">skill-md-write-needs-tmp-draft-first</td><td>Documents the sanctioned way to write or edit skill files: explicit approval in the user's own words naming the skill, with the draft written elsewhere first.</td><td>self-built (distilled by the agent from session lessons)</td></tr>
+      <tr><td class="n">audit</td><td>Runs a heavyweight multi-round audit of a high-stakes document, codebase, plan or analysis, on explicit request only.</td><td>self-built (my own design)</td></tr>
+      <tr><td class="n">claude-code-session-migration-on-folder-move</td><td>Explains how to carry Claude Code session histories across when a project folder is moved or renamed, so earlier sessions can still be resumed.</td><td>self-built (distilled by the agent from session lessons)</td></tr>
+      <tr><td class="n">design-taste-frontend</td><td>Guides building non-templated frontend interfaces such as landing pages and portfolios with real design systems.</td><td>third-party: GitHub Leonxlnx/taste-skill (MIT)</td></tr>
+      <tr><td class="n">health-personal</td><td>Audits the agent's own configuration directory for orphaned pointers, stale state and drift.</td><td>self-built (my own design)</td></tr>
+      <tr><td class="n">markitdown</td><td>Converts PDFs, Office documents, images, audio and more into Markdown text, including OCR and transcription.</td><td>Anthropic knowledge-work plugins (authored by K-Dense Inc.)</td></tr>
+      <tr><td class="n">reconcile-finding-before-fixing</td><td>Advises reconciling a reported defect against the actual state of the work before applying any fix.</td><td>self-built (distilled by the agent from session lessons)</td></tr>
+      <tr><td class="n">/sync-repo</td><td>Syncs local artefacts to a public repository. It stages; the human pushes.</td><td>self-built (my own design)</td></tr>
+      <tr><td class="n">claude-code-windows-upgrade-pitfalls</td><td>Explains two pitfalls when upgrading Claude Code on Windows, including accidental downgrades and file lock errors.</td><td>self-built (distilled by the agent from session lessons)</td></tr>
+      <tr><td class="n">git-worktree-removal-windows-onedrive-lock</td><td>Explains how to recover when removing a git worktree fails on Windows because of OneDrive file locks.</td><td>self-built (distilled by the agent from session lessons)</td></tr>
+      <tr><td class="n">knowledge-base-coverage-audit</td><td>Reconciles what has been ingested into a knowledge base or wiki against what was intended to be included.</td><td>self-built (my own design)</td></tr>
+      <tr><td class="n">memory-search</td><td>Runs semantic search across saved session memory notes to surface related matches that plain text search misses.</td><td>self-built (my own design)</td></tr>
+      <tr><td class="n">orchestrate</td><td>Turns a session into a planner that carries a large task through a few worker sessions behind one approval gate; outward-facing or irreversible steps still stop for me.</td><td>self-built (my own design)</td></tr>
+      <tr><td class="n">pdf</td><td>Reads, creates, merges, splits, edits, watermarks, encrypts and OCR-scans PDF files for general document handling.</td><td>Anthropic official skills</td></tr>
+      <tr><td class="n">pdftotext-layout-last-column-displacement</td><td>Detects and repairs a PDF table extraction artefact in which a short last-column value is displaced to another row.</td><td>self-built (distilled by the agent from session lessons)</td></tr>
+      <tr><td class="n">playwright-cli</td><td>Automates browser interactions for web testing, screenshots and data extraction.</td><td>third-party: playwright-cli ecosystem (no explicit repository)</td></tr>
+      <tr><td class="n">pubmed-database</td><td>Builds and documents reproducible PubMed searches and retrieves bibliographic records by identifier.</td><td>Anthropic knowledge-work plugins (authored by K-Dense Inc.)</td></tr>
+      <tr><td class="n">redesign-existing-projects</td><td>Audits an existing website or app's design and upgrades it to a higher visual standard without breaking functionality.</td><td>third-party: GitHub Leonxlnx/taste-skill (MIT)</td></tr>
+      <tr><td class="n">verify-instrument-before-trusting-measurement</td><td>Advises verifying that a measuring instrument itself works before trusting the numbers it reports.</td><td>self-built (distilled by the agent from session lessons)</td></tr>
+      <tr><td class="n">auto-mode-classifier-refuses-agent-dispatches</td><td>Explains what to record when the automatic permission classifier refuses some subagent dispatches, and that a refusal is never retried or reworded without the user's approval.</td><td>self-built (distilled by the agent from session lessons)</td></tr>
+      <tr><td class="n">claude-code-write-deny-requires-edit-rule</td><td>Documents a permissions pitfall: blocking the file-write tool alone is not enough without the matching edit rule.</td><td>self-built (distilled by the agent from session lessons)</td></tr>
+      <tr><td class="n">docx</td><td>Creates, edits and analyses Word documents, with support for tracked changes, comments and formatting.</td><td>Anthropic official skills</td></tr>
+      <tr><td class="n">drawio</td><td>Creates editable flowcharts and architecture diagrams as draw.io files, with export to PNG, SVG or PDF.</td><td>third-party: GitHub jgraph/drawio-mcp (Apache-2.0)</td></tr>
+      <tr><td class="n">fault-injection-harness-design</td><td>Guides the design of fault-injection test harnesses so that every guard is proven able to fail.</td><td>self-built (distilled by the agent from session lessons)</td></tr>
+      <tr><td class="n">mental-model</td><td>Builds a verified, layered model of one piece of work and walks the user through it in a short guided session.</td><td>self-built (my own design)</td></tr>
+      <tr><td class="n">r-refactor-equivalence</td><td>Proves that a style-only refactor of an R script left its output unchanged.</td><td>self-built (my own design)</td></tr>
+      <tr><td class="n">reimplementation-faithfulness-fixtures</td><td>Advises pinning behavioural fidelity with test fixtures when reimplementing existing code.</td><td>self-built (distilled by the agent from session lessons)</td></tr>
+      <tr><td class="n">skill-craft</td><td>Helps create and refine Claude Code skills through a guided workflow.</td><td>third-party: GitHub 3stoneBrother/skill-craft</td></tr>
+    </tbody>
+    </table></div>
+    <p class="cat-intro" style="margin-top:22px"><strong>The library&rsquo;s shape.</strong> All 211 skills/commands, summarised by category: the 193 skills by subject, and the 18 commands with no skill of the same name in a row of their own. The counts cover the whole library, not only the entries listed above; much of the remainder is narrow lesson capsules that fire rarely by design.</p>
+    <div class="table-scroll"><table class="cat">
+      <thead>
+      <tr><th scope="col">Category</th><th scope="col">Skills/commands</th><th scope="col">Flavour</th></tr>
+      </thead>
+      <tbody>
+      <tr><td>Harness engineering</td><td>42</td><td>Building the harness itself: creating and vetting skills, designing subagents, hardening guards, and the pitfalls met on the way.</td></tr>
+      <tr><td>Literature & search</td><td>34</td><td>Database lookups, literature search, citation handling, reference managers.</td></tr>
+      <tr><td>R & coding</td><td>24</td><td>Language patterns, libraries and debugging lessons for R and Python.</td></tr>
+      <tr><td>Quality control & verification</td><td>22</td><td>Review procedures and hard-won verification lessons, many written after a check was fooled once.</td></tr>
+      <tr><td>Writing & documents</td><td>15</td><td>Long-form documents, slides, posters and document formats.</td></tr>
+      <tr><td>Utilities</td><td>15</td><td>Small operational fixes, mostly Windows and file-format quirks, captured so they never cost an afternoon again.</td></tr>
+      <tr><td>Design & visualisation</td><td>11</td><td>Figures, diagrams, palettes and front-end taste.</td></tr>
+      <tr><td>Thinking tools</td><td>9</td><td>Structured brainstorming, requirement grilling, multi-perspective debate.</td></tr>
+      <tr><td>Statistics & methods</td><td>8</td><td>Methods support: study-design frameworks, statistical modelling, survival analysis.</td></tr>
+      <tr><td>Web & integrations</td><td>8</td><td>External platforms, knowledge tools and agent-to-agent tooling connected to the agent.</td></tr>
+      <tr><td>Session & workflow</td><td>5</td><td>Session continuity, work snapshots, cross-session project state.</td></tr>
+      <tr><td>Commands</td><td>18</td><td>Slash-command rituals with no skill of the same name.</td></tr>
+    </tbody>
+    </table></div>
+  </article>
+  <!-- SKILLS-SECTION-END -->
+
+  <article class="module cat" id="cat-hooks">
+    <h3>The 22 hooks</h3>
+    <p class="cat-intro">Each hook is a small script registered against an event. Four roles
+    recur: <span class="pill hard">blocks</span> guards that refuse the action outright,
+    <span class="pill">warns</span> advisories that let it proceed,
+    <span class="pill">logs</span> audit trails, and <span class="pill">automates</span>
+    housekeeping that runs so the human never has to remember it. Some scripts are
+    registered more than once because they watch more than one channel; the count below is
+    of registrations, matching the tile.</p>
+    <div class="table-scroll"><table class="cat">
+      <thead>
+      <tr><th scope="col">Script</th><th scope="col">Fires</th><th scope="col">Role</th><th scope="col">What it does</th></tr>
+      </thead>
+      <tbody>
+      <tr class="sub"><td colspan="4">Before a tool call runs</td></tr>
+      <tr><td class="n">block-non-c-drives.sh</td><td>on file and search calls, web fetches, external-server calls and other path-bearing tools (registered four times)</td><td><span class="pill hard">blocks</span></td><td>Denies any tool call on the covered channels that references a research-data drive, across every path spelling it has been tested against; the exotic forms it cannot catch are catalogued in policy, not ignored. The workhorse of the isolation policy.</td></tr>
+      <tr><td class="n">block-dangerous.sh</td><td>on every shell command</td><td><span class="pill hard">blocks</span></td><td>Refuses recursive deletion of protected folders, credential reads, raw network-download tools and other dangerous command patterns.</td></tr>
+      <tr><td class="n">block-playwright-runcode.sh</td><td>on browser automation, via its server and via the shell (registered twice)</td><td><span class="pill hard">blocks</span></td><td>Stops arbitrary code execution smuggled through the browser-automation channel.</td></tr>
+      <tr><td class="n">log-mcp-call.sh</td><td>on two external tool servers (registered twice)</td><td><span class="pill">logs</span></td><td>Writes an audit line for every call to a connected external server.</td></tr>
+      <tr><td class="n">pre-backup-original.sh</td><td>before an edit lands</td><td><span class="pill">automates</span></td><td>Snapshots the original file before the agent is allowed to change it.</td></tr>
+      <tr><td class="n">log-agent-model.sh</td><td>on subagent launches, in the background</td><td><span class="pill">logs</span></td><td>Records which model each subagent actually ran on, so routing drift is visible.</td></tr>
+      <tr><td class="n">check-description-budget.sh</td><td>on shell commands, acting at commit time</td><td><span class="pill">warns</span></td><td>Flags any skill description that has outgrown the listing&rsquo;s cut-off, so its trigger words are not silently lost. Advisory only; the weekly audit remains the authority.</td></tr>
+      <tr class="sub"><td colspan="4">After a tool call finishes</td></tr>
+      <tr><td class="n">backup-on-edit.sh</td><td>after every edit or write</td><td><span class="pill">automates</span></td><td>Keeps a dated backup copy of every file the agent touches.</td></tr>
+      <tr><td class="n">memory-budget-guard.sh</td><td>after every edit or write</td><td><span class="pill">warns</span></td><td>Re-measures the always-loaded memory index, and any memory file just edited, against its size ceiling and warns as it approaches the limit.</td></tr>
+      <tr><td class="n">warn-research-writes.sh</td><td>after every edit or write</td><td><span class="pill">warns</span></td><td>An advisory nudge when a write lands in a research folder. It never blocks.</td></tr>
+      <tr><td class="n">darwin-smoketest.sh</td><td>after every edit or write</td><td><span class="pill">automates</span></td><td>Runs a smoke test when the files of a self-evolving skill change.</td></tr>
+      <tr><td class="n">telemetry-usage.mjs</td><td>after each skill invocation</td><td><span class="pill">logs</span></td><td>Counts which skills actually get used, which feeds curation decisions.</td></tr>
+      <tr class="sub"><td colspan="4">At session start</td></tr>
+      <tr><td class="n">check-security-review-log.sh</td><td>every session start</td><td><span class="pill">warns</span></td><td>Surfaces an overdue weekly security review the moment a session opens.</td></tr>
+      <tr><td class="n">inject-post-compact-resume.sh</td><td>session start after compaction</td><td><span class="pill">automates</span></td><td>Injects resume pointers so a compacted session picks up exactly where it left off.</td></tr>
+      <tr><td class="n">herdr-agent-state.ps1</td><td>at session start</td><td><span class="pill">automates</span></td><td>Registers the session with the terminal multiplexer, so other agents on the machine can see it and reach it.</td></tr>
+      <tr class="sub"><td colspan="4">Other lifecycle events</td></tr>
+      <tr><td class="n">audit-config-change.sh</td><td>on any settings change</td><td><span class="pill">logs</span></td><td>Logs every configuration change for the weekly drift audit.</td></tr>
+      <tr><td class="n">auto-pre-compact.mjs</td><td>before context compaction</td><td><span class="pill">automates</span></td><td>Dumps critical context to disk before the window is compressed.</td></tr>
+    </tbody>
+    </table></div>
+    <p class="cat-intro" style="margin-top:14px">Design notes worth stealing: guards that
+    protect data fail closed, advisories fail open; every blocker keeps an append-only log
+    of what it denied, which is how false positives get diagnosed; and the two most
+    dangerous guards are themselves re-tested weekly by deliberately injected faults.</p>
+  </article>
+
+  <article class="module cat" id="cat-deny">
+    <h3>The 120 deny rules</h3>
+    <p class="cat-intro">Deny rules are static permission entries evaluated before anything
+    runs, a separate layer from the hooks so that either can catch what the other misses.
+    They fall into six families. Exact patterns are deliberately not reproduced here; the
+    families and their logic are the transferable part.</p>
+    <div class="table-scroll"><table class="cat">
+      <thead>
+      <tr><th scope="col">Family</th><th scope="col">Entries</th><th scope="col">What it stops</th></tr>
+      </thead>
+      <tbody>
+      <tr><td>Research-drive isolation</td><td>75</td><td>Reading, editing and searching are each denied across every non-local drive letter: three tools times twenty-five letters, enumerated in full rather than pattern-matched, so there is no wildcard logic to slip past. Typical catch: a file read whose path names any other drive letter is refused before it runs. What enumeration cannot see is named below.</td></tr>
+      <tr><td>Destructive version-control commands</td><td>10</td><td>Force pushes, hard resets and tree-wide restores. Git itself stays available; its irreversible spellings do not. Typical catches: <code>git push --force</code>, <code>git reset --hard</code>.</td></tr>
+      <tr><td>Recursive deletion of protected roots</td><td>10</td><td>Delete commands aimed at the home directory, the user tree or the filesystem root. Typical catch: <code>rm -rf</code> pointed at the home directory or the configuration folder.</td></tr>
+      <tr><td>Credential and secret reads</td><td>9</td><td>Private keys, environment files, cloud credentials and browser credential stores. Typical catches: reading an SSH private key or a <code>.env</code> file.</td></tr>
+      <tr><td>Credential and secret writes</td><td>6</td><td>Key material stays unwritable as well as unreadable. Typical catch: a write landing in a key store or an environment file.</td></tr>
+      <tr><td>Literature-service write tools</td><td>10</td><td>The write actions offered by one connected literature service.</td></tr>
+    </tbody>
+    </table></div>
+    <p class="cat-intro" style="margin-top:14px">Two habits behind the list. Deny entries
+    match literal spellings, so the internal policy honestly records what they do
+    <em>not</em> catch (a path assembled at run time, for instance) and assigns that residue
+    to the hooks and to written policy instead of pretending the list is airtight. And the
+    list is audited: entries that a validator proves inert get removed, with the reasoning
+    logged.</p>
+  </article>
+
+  <article class="module cat" id="cat-memory">
+    <h3>The 185 memory files</h3>
+    <p class="cat-intro">Each memory is one Markdown file holding one topic, with a short
+    header (name, one-line description, type) so a future session can judge relevance
+    without opening it. An index file, itself budget-guarded by a hook, carries one pointer
+    line per memory and loads at session start; everything else loads on demand. Older
+    topic history moved into an archive subfolder is not counted here; the change-log and
+    catalogue archives sit at the top level and are.</p>
+    <div class="table-scroll"><table class="cat">
+      <thead>
+      <tr><th scope="col">Type</th><th scope="col">Files</th><th scope="col">What lives there</th></tr>
+      </thead>
+      <tbody>
+      <tr><td class="n">lessons_*</td><td>72</td><td>Post-mortems of things that went wrong once and must not recur. Each opens with a one-sentence summary and a why line.</td></tr>
+      <tr><td class="n">ref_*</td><td>37</td><td>Pointers to canonical references, internal and external, fetched only when a trigger topic comes up.</td></tr>
+      <tr><td class="n">feedback_*</td><td>34</td><td>Corrections from the user and confirmed working methods, each with a how-to-apply note.</td></tr>
+      <tr><td class="n">project_*</td><td>17</td><td>Ongoing project state that only conversations know. Contents withheld here.</td></tr>
+      <tr><td class="n">changelog*</td><td>13</td><td>The append-only change and variance log and its monthly archives; corrections quote the superseded wording rather than overwrite it.</td></tr>
+      <tr><td>index</td><td>5</td><td>The always-loaded index and four load-on-demand sub-indexes for rarely needed pointers.</td></tr>
+      <tr><td>profile &amp; journal</td><td>2</td><td>Who the user is and a lightweight day-to-day task journal.</td></tr>
+      <tr><td>operational ledgers</td><td>5</td><td>Registries such as the record of every skill-vetting verdict, plus the archive that catalogue history moves into.</td></tr>
+    </tbody>
+    </table></div>
+    <p class="cat-intro" style="margin-top:14px">Flavour of the biggest class, paraphrased:
+    a lesson that background shells need explicit timeouts or they hang a whole pipeline; a
+    lesson that when two counts of the same thing disagree, check the counting units before
+    diagnosing drift; a lesson that a green check which has never been shown able to fail
+    proves nothing. The store is dominated by exactly the notes that stop repeated
+    mistakes, which is the point.</p>
+  </article>
+
+  <article class="module cat" id="cat-rules">
+    <h3>The 15 rules files</h3>
+    <p class="cat-intro">Each rules file owns one domain. Eleven are resident in every
+    session; four declare the paths they apply to and load only when the work touches
+    matching files, which keeps unrelated sessions lean.</p>
+    <div class="table-scroll"><table class="cat">
+      <thead>
+      <tr><th scope="col">File</th><th scope="col">Scope</th><th scope="col">What it governs</th></tr>
+      </thead>
+      <tbody>
+      <tr><td class="n">security.md</td><td><span class="pill hard">resident</span></td><td>The credential and file-safety floor, deletion protections (no deletion without a recovery window), the protocol when a deny rule blocks legitimate work: the agent never routes around a rule; it explains and waits for my decision, and the response to prompt injection.</td></tr>
+      <tr><td class="n">research-data-policy.md</td><td><span class="pill hard">resident</span></td><td>The drive-isolation rule, its two code-enforced layers plus the written-policy layer behind them, and an honest register of residual risks.</td></tr>
+      <tr><td class="n">academic-workflow.md</td><td><span class="pill hard">resident</span></td><td>Academic-integrity absolutes, the tool-based citation floor, statistical reporting standards, reporting guidelines by study design.</td></tr>
+      <tr><td class="n">spec-driven-analysis.md</td><td><span class="pill hard">resident</span></td><td>The correctness floor for analysis code: spec as source of truth, runtime assertions, reconciliation tables, fault injection.</td></tr>
+      <tr><td class="n">model-effort-routing.md</td><td><span class="pill hard">resident</span></td><td>Which model tier and reasoning effort each kind of work runs on, and the verification gate that no economy may move.</td></tr>
+      <tr><td class="n">token-economy.md</td><td><span class="pill hard">resident</span></td><td>The opt-in economy mode, what it may downgrade, and the standing rule that quality is never traded for tokens.</td></tr>
+      <tr><td class="n">diagram-tools.md</td><td><span class="pill hard">resident</span></td><td>Which tool draws which class of diagram, so figures come out consistent.</td></tr>
+      <tr><td class="n">grill-me-activation.md</td><td><span class="pill hard">resident</span></td><td>When requirement-grilling fires automatically for new designs versus being offered once.</td></tr>
+      <tr><td class="n">roundtable-activation.md</td><td><span class="pill hard">resident</span></td><td>When a multi-perspective debate is suggested. Never automatic; exploratory tools stay invitations.</td></tr>
+      <tr><td class="n">work-snapshot-activation.md</td><td><span class="pill hard">resident</span></td><td>How numbered work lists are recovered safely after context compaction.</td></tr>
+      <tr><td class="n">claudeception-activation.md</td><td><span class="pill hard">resident</span></td><td>When the end-of-task retrospection check runs, how tentative notes accumulate confidence, and the bar a note must clear before promotion is even proposed.</td></tr>
+      <tr><td class="n">coding-style.md</td><td><span class="pill">path-scoped</span></td><td>R and Python style conventions; loads only for code work.</td></tr>
+      <tr><td class="n">example-R.md</td><td><span class="pill">path-scoped</span></td><td>A reference R script skeleton showing the expected structure.</td></tr>
+      <tr><td class="n">proofreading-protocol.md</td><td><span class="pill">path-scoped</span></td><td>Propose-first proofreading: suggested edits, never silent ones.</td></tr>
+      <tr><td class="n">quality-gates.md</td><td><span class="pill">path-scoped</span></td><td>Scoring rubrics and thresholds for scripts and documents.</td></tr>
+    </tbody>
+    </table></div>
+  </article>
+
+  <article class="module cat" id="cat-agents">
+    <h3>The six custom agents</h3>
+    <p class="cat-intro">Each agent file pins a role, a model tier and an effort level, so a
+    busy session cannot quietly hand review work to a cheaper reviewer. Reviewers sit on
+    the strongest tier; bounded retrieval and mechanical work sit on a lighter one.</p>
+    <div class="table-scroll"><table class="cat">
+      <thead>
+      <tr><th scope="col">Agent</th><th scope="col">Tier</th><th scope="col">Role</th></tr>
+      </thead>
+      <tbody>
+      <tr><td class="n">domain-reviewer</td><td><span class="pill hard">strongest</span></td><td>Substantive review of quantitative reasoning: causal assumptions, methods validity, reporting compliance, citation fidelity.</td></tr>
+      <tr><td class="n">r-reviewer</td><td><span class="pill hard">strongest</span></td><td>R code review: correctness, reproducibility, figure generation, style compliance.</td></tr>
+      <tr><td class="n">verifier</td><td><span class="pill hard">strongest</span></td><td>End-to-end output verification: does it compile, render, and hold together as a deliverable.</td></tr>
+      <tr><td class="n">literature-reviewer</td><td><span class="pill">lighter</span></td><td>Structured literature search across bibliographic sources.</td></tr>
+      <tr><td class="n">paper-miner</td><td><span class="pill">lighter</span></td><td>Extraction of structure and data from supplied papers.</td></tr>
+      <tr><td class="n">proofreader</td><td><span class="pill">lighter</span></td><td>Grammar, typos, overflow and consistency in formal documents.</td></tr>
+    </tbody>
+    </table></div>
+    <p class="cat-intro" style="margin-top:14px">A review role on a lighter model is not a
+    contradiction. Proofreading is bounded, mechanical and cheap to re-run; pinning it to
+    the strongest model would buy nothing.</p>
+  </article>
+
+  <footer>
+    <p>Version 3.2 · 24 November 2026. Describes the live configuration as verified on
+    24 November 2026 (Claude Code v2.1.329).</p>
+    <p>A personal project describing a personal setup: not institutional policy, and no
+    endorsement by my employer or by Anthropic is implied.</p>
+  </footer>
+
+</main>
+
+<script>
+(function(){
+  var btn=document.getElementById('toggleDeep');
+  btn.hidden=false;
+  var open=false;
+  function setAll(state){
+    document.querySelectorAll('details.deep').forEach(function(d){d.open=state;});
+    open=state;
+    btn.textContent=state?'Collapse detail':'Expand all detail';
+    btn.setAttribute('aria-pressed',String(state));
+  }
+  btn.addEventListener('click',function(){setAll(!open);});
+  var mnav=document.querySelector('.m-nav');
+  if(mnav){mnav.addEventListener('click',function(e){if(e.target&&e.target.tagName==='A'){mnav.open=false;}});}
+  var saved=null;
+  window.addEventListener('beforeprint',function(){
+    saved=Array.prototype.map.call(document.querySelectorAll('details.deep'),function(d){return d.open;});
+    document.querySelectorAll('details.deep').forEach(function(d){d.open=true;});
+  });
+  window.addEventListener('afterprint',function(){
+    if(!saved)return;
+    Array.prototype.forEach.call(document.querySelectorAll('details.deep'),function(d,i){d.open=saved[i];});
+    saved=null;
+  });
+})();
+</script>
+</body>
+</html>
