@@ -70,6 +70,33 @@ better than a copy of mine.
 If anything here does not make sense, or you would like a fuller explanation of any
 mechanism, please feel free to get in touch.
 
+## Known limitations, and where this goes next
+
+I have put a lot of work into this harness, and it still has clear weaknesses. I list
+them here because they mark where the next round of work will go, and because they may
+save you from making the same mistakes.
+
+- **The resident context is too large.** A good deal of instruction text is loaded
+  into every session, whether or not the task at hand needs it. That spends tokens for
+  nothing, and too much material unrelated to the task can also distract the model.
+- **Skills, commands and memory files can pile up.** Each was added for a reason, but
+  there is a real risk that the collection grows beyond what earns its keep.
+- **The tuning has not been evaluated rigorously.** My changes to the harness rest
+  mainly on feel, experience and process metrics, such as how often a review has to be
+  reopened. I have not built a dedicated evaluation framework that treats the harness
+  itself as the object of study and tests it with controlled comparisons, so I cannot
+  show robustly that it also improves the outcome metrics that matter in real work.
+  What the page measures is the process, not yet those outcomes.
+
+Beyond these three, as models become more capable, a heavy harness may start to hold
+the agent back rather than help it.
+
+So the direction from here is to subtract, to refine, and to judge changes by their
+actual effect. I am not aiming for 300 skills, 40 hooks or 300 memory files. I am
+aiming for fewer resident instructions, fewer QC (quality-check) rounds that achieve
+nothing, less need for me to step in by hand, and a final task accuracy that is higher
+and can be measured.
+
 ## A few notes
 
 - Counts were probed live from the configuration on 24 November 2026, so they will
