@@ -26,7 +26,8 @@ would very much like to hear about it!
 A web page describing the personal Claude Code configuration (the "harness") I use
 in my day-to-day work:
 
-- [`my-agent-harness-for-claude.html`](my-agent-harness-for-claude.html): the whole
+- **[Read the page online][page]** (source file:
+  [`my-agent-harness-for-claude.html`](my-agent-harness-for-claude.html)): the whole
   tour. It covers the task lifecycle contract, safety architecture, verification
   machinery, the learning loop, and an item-by-item catalogue of the harness's
   components, including the skills and commands in regular use, each named,
@@ -116,3 +117,5 @@ and can be measured.
 - Effectiveness figures quoted on the page (e.g., review reopen rates) come
   from the harness's own operational logs. They are internal and descriptive, and
   they have not been independently audited.
+
+[page]: https://peiyuan-ran-huang.github.io/my-agent-harness/my-agent-harness-for-claude.html
