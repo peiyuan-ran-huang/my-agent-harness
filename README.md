@@ -77,8 +77,9 @@ them here because they mark where the next round of work will go, and because th
 save you from making the same mistakes.
 
 - **The resident context is too large.** A good deal of instruction text is loaded
-  into every session, whether or not the task at hand needs it. That spends tokens for
-  nothing, and too much material unrelated to the task can also distract the model.
+  into every session, whether or not the task at hand needs it. That spends tokens
+  unnecessarily, and too much material unrelated to the task can also distract the
+  model.
 - **Skills, commands and memory files can pile up.** Each was added for a reason, but
   there is a real risk that the collection grows beyond what earns its keep.
 - **The tuning has not been evaluated rigorously.** My changes to the harness rest
@@ -86,13 +87,12 @@ save you from making the same mistakes.
   reopened. I have not built a dedicated evaluation framework that treats the harness
   itself as the object of study and tests it with controlled comparisons, so I cannot
   show robustly that it also improves the outcome metrics that matter in real work.
-  What the page measures is the process, not yet those outcomes.
 
 Beyond these three, as models become more capable, a heavy harness may start to hold
 the agent back rather than help it.
 
 So the direction from here is to subtract, to refine, and to judge changes by their
-actual effect. I am not aiming for 300 skills, 40 hooks or 300 memory files. I am
+actual effect. I am NOT aiming for 500+ skills, hooks or memory files. I am
 aiming for fewer resident instructions, fewer QC (quality-check) rounds that achieve
 nothing, less need for me to step in by hand, and a final task accuracy that is higher
 and can be measured.
